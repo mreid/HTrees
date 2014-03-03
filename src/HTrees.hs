@@ -1,4 +1,4 @@
-{-# LANGUAGE RankNTypes #-}
+-- {-# LANGUAGE RankNTypes #-}
 -- An attempt at writing a simple decision tree learner, with an emphasis
 -- on expression and generality rather than efficiency.
 --
@@ -22,35 +22,15 @@
 --
 -- AUTHOR: Mark Reid <mark.reid@gmail.com>
 -- CREATED: 2013-02-26
-module Main where
+module HTrees where
 
 import            Control.Arrow ((***))
 import            Control.Monad (join)
-import            Data.CSV.Conduit
 import            Data.Function (on)
-import            Data.List (delete, minimumBy, partition)
+import            Data.List (delete, elemIndex, minimumBy, partition)
 import qualified  Data.Map.Lazy as Map
 import            Data.Maybe (fromJust, mapMaybe)
 import            GHC.Exts (groupWith)
-
---------------------------------------------------------------------------------
--- Main
-main = do 
-  -- Wine data from UCI uses semi-colon separated columns
-  csv <- readCSVFile defCSVSettings { csvSep = ';' } "data/winequality-red.csv" 
-
-  let instances = take 400 $ map parseInstance csv
-  let keys = delete "quality" (Map.keys $ head instances) 
-  let attrs = [ fromJust . Map.lookup k | k <- keys ]
-  let target = fromJust . Map.lookup "quality"
-  let dataset = DS attrs (makeExamplesWith target instances)
-  putStrLn "Builing..."
-  let tree = build 1 dataset
-  putStrLn "Done!"
-  -- let applied = map stump instances
-
-  putStrLn $ show $ predictWith tree (head instances)
-  -- return $ (dataset, build  1 dataset)
 
 --------------------------------------------------------------------------------
 -- Data and prediction
@@ -171,29 +151,4 @@ meanModel xs = const (mean . map label $ xs)
 -- Compute the mean of a list of numbers
 mean :: [Double] -> Double
 mean xs = (sum xs) / (fromIntegral . length $ xs)
-
---------------------------------------------------------------------------------
--- Data IO and other wrangling
-
-parseInstance :: MapRow String -> Map.Map String Double
-parseInstance = Map.map makeValue 
-
-makeValue :: String -> Double
-makeValue s = case reads s :: [(Double, String)] of
-  [(v, "")]   -> v
-  _               -> error $ "Could not parse '" ++ s ++ "' as Double"
-
--- Wine data set columns:
--- "fixed acidity";
--- "volatile acidity";
--- "citric acid";
--- "residual sugar";
--- "chlorides";
--- "free sulfur dioxide";
--- "total sulfur dioxide";
--- "density";
--- "pH";
--- "sulphates";
--- "alcohol";
--- "quality"
 

@@ -20,6 +20,13 @@ library
   -- other-modules:       
   -- other-extensions:    
   build-depends:       base >=4.6 && <4.7,
-                       csv-conduit, bytestring, vector, containers
+                       bytestring, containers
   hs-source-dirs:      src/
   default-language:    Haskell2010
+
+executable run
+  hs-source-dirs:		src/
+  default-language:		Haskell2010
+  main-is:				run.hs
+  
+  build-depends: base, csv-conduit, vector, containers, HTrees
