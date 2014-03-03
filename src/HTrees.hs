@@ -119,7 +119,7 @@ type ImpurityMeasure = [Label] -> Double
 
 -- Computes the variance of the given data set 
 variance :: ImpurityMeasure
-variance xs = sum . map ((^2) . (subtract (mean xs))) $ xs
+variance xs = foldr ((+) . (^2) . (subtract (mean xs))) 0 xs
 
 -- Given several label lists returns a size weighted average impurity
 quality :: ImpurityMeasure -> [[Label]] -> Double

@@ -1,3 +1,6 @@
+**/*.hi
+**/*.o
+src/HTrees.hi
 run
 data
 dist

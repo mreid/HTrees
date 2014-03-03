@@ -11,13 +11,13 @@ import Data.Vector ((!), Vector, fromList)
 -- Main
 main = do 
   dataset <- readDataset
-  -- Wine data from UCI uses semi-colon separated columns
-  putStrLn "Builing..."
-  let tree = build 1 dataset
-  putStrLn "Done!"
-  -- let applied = map stump instances
+  let splits = allSplits dataset
+  putStrLn . show $ map (splitQuality variance dataset) splits
+  -- putStrLn "Builing..."
+  -- let tree = build 1 dataset
+  -- putStrLn "Done!"
 
-  putStrLn $ show $ predictWith tree (head . map inst . examples $ dataset)
+  -- putStrLn $ show $ predictWith tree (head . map inst . examples $ dataset)
   -- return $ (dataset, build  1 dataset)
 
 readDataset = do 
