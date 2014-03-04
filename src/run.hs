@@ -11,14 +11,12 @@ import Data.Vector ((!), Vector, fromList)
 -- Main
 main = do 
   dataset <- readDataset
-  let splits = allSplits dataset
-  putStrLn . show $ map (splitQuality variance dataset) splits
-  -- putStrLn "Builing..."
-  -- let tree = build 1 dataset
-  -- putStrLn "Done!"
+  putStrLn "Builing..."
+  let tree = build 1 dataset
+  putStrLn "Done!"
 
-  -- putStrLn $ show $ predictWith tree (head . map inst . examples $ dataset)
-  -- return $ (dataset, build  1 dataset)
+  putStrLn $ show $ predictWith tree (head . map inst . examples $ dataset)
+  return $ (dataset, build  1 dataset)
 
 readDataset = do 
   csv <- readCSVFile defCSVSettings { csvSep = ';' } "data/winequality-red.csv" 
@@ -30,6 +28,9 @@ readDataset = do
   
   return $ DS attrs (makeExamplesWith target instances)
   
+makeExamplesWith :: (a -> Label) -> [a] -> [Example a]
+makeExamplesWith f is = [ Ex i (f i) | i <- is ]
+
 --------------------------------------------------------------------------------
 -- Data IO and other wrangling
 

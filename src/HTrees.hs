@@ -32,7 +32,7 @@ import            Control.Monad (join)
 import            Data.Monoid   (Monoid, mempty, mappend)
 import            Data.Foldable (foldMap)
 import            Data.Function (on)
-import            Data.List (minimumBy, partition)
+import            Data.List (minimumBy, partition, sortBy)
 
 import qualified  Data.Map.Lazy as Map
 --------------------------------------------------------------------------------
@@ -40,24 +40,15 @@ import qualified  Data.Map.Lazy as Map
 -- An example is an instance labelled with a double
 type Label = Double
 type Value = Double
-data Example a = Ex { inst :: a, label :: Label } deriving Show
-
-makeExamplesWith :: (a -> Label) -> [a] -> [Example a]
-makeExamplesWith f is = [ Ex i (f i) | i <- is ]
-
 type Attribute a = (a -> Value)
+
+data Example a = Ex { inst :: a, label :: Label } deriving Show
 
 -- A data set is a collection of examples and attributes
 data DataSet a = DS { features :: [Attribute a], examples :: [Example a] } 
 
 size :: DataSet a -> Int
 size = length . examples
-
-instances :: DataSet a -> [a]
-instances = map inst . examples
-
-labels :: DataSet a -> [Label]
-labels = map label . examples
 
 -- A decision tree consists of internal nodes which split and leaf nodes
 -- which make predictions
@@ -113,7 +104,7 @@ instance Statistic Variance where
 
 -- A Split is puts each instance into one of two classes by testing 
 -- an attribute against a threshold.
-data Split a = Split { attribute :: Attribute a, threshold :: Value }
+data Split a = Split { attribute :: Attribute a, threshold :: Value } 
 
 -- Build all possible splits for a given data set
 -- allSplits :: DataSet a -> [Split a]
@@ -121,28 +112,26 @@ allSplits ds = [Split attr v | attr <- features ds, v <- values attr]
   where
     values attr = map (attr . inst) . examples $ ds
 
--- Given several label lists returns a size weighted average impurity
--- quality :: ImpurityMeasure -> LabelSplit -> Double
-quality :: Statistic s => (Map.Map Value s, Maybe s, Map.Map Value s) -> Double
-quality (left, Nothing, right) = error "Pivot label not found!"
-quality (left, Just lab, right) = 
-  (weight leftSum) * (toDouble leftSum) + (weight rightSum) * (toDouble rightSum)
-  where
-    leftSum = foldMap id left 
-    rightSum = foldMap id right
-
--- Computes the quality of a split applied to a particular data set
-splitQuality :: Statistic s => (Label -> s) -> DataSet a -> Split a -> Double
-splitQuality stat ds split = quality splits
-  where
-    instValue   = (attribute split) . inst
-    add ex      = Map.insertWith mappend (instValue ex) (stat . label $ ex)
-    labelStats  = foldr add Map.empty $ examples ds
-    splits      = Map.splitLookup (threshold split) labelStats
+quality :: Statistic s => (Value, s) -> (Value, s) -> (Value,Double)
+quality (v,left) (v',right) = (v,(weight left) * (toDouble left) + (weight right) * (toDouble right))
 
 -- Get best split for the given data set as assessed by the impurity measure
 findBestSplit :: Statistic s => (Label -> s) -> DataSet a -> Split a
-findBestSplit im ds = minimumBy (compare `on` splitQuality im ds) (allSplits ds)
+findBestSplit stat ds = fst . minimumBy (compare `on` snd) $ perAttr
+  where
+    perAttr = map (bestSplitFor (examples ds) stat) (features ds)
+
+bestSplitFor :: Statistic s => [Example a] -> (Label -> s) -> Attribute a -> (Split a, Double)
+bestSplitFor exs stat attr = (Split attr val, score)
+  where
+    sorted = sortBy (compare `on` (attr . inst)) exs
+    accum  = foldMap (f stat attr [])
+    scores = zipWith quality (accum sorted) (accum . reverse $ sorted)
+    (val, score) = minimumBy (compare `on` snd) scores
+
+f :: Statistic s => (Label -> s) -> Attribute a -> [(Value, s)] -> Example a ->  [(Value, s)]
+f stat attr [] ex = [(attr . inst $ ex, stat . label $ ex)]
+f stat attr pairs ex = (attr . inst $ ex, (stat . label $ ex) `mappend` (snd . head $ pairs)) : pairs
 
 --------------------------------------------------------------------------------
 -- Models
