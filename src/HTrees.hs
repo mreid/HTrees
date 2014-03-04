@@ -1,4 +1,4 @@
--- {-# LANGUAGE RankNTypes #-}
+-- {-# LANGUAGE TypeSynonymInstances, FlexibleInstances #-}
 -- An attempt at writing a simple decision tree learner, with an emphasis
 -- on expression and generality rather than efficiency.
 --
@@ -20,18 +20,21 @@
 --    fixedAcidity :: Wine -> Double
 --    volatileAcidity :: Wine -> Double
 --
+-- References:
+--  * An alternative implementation: https://github.com/ajtulloch/haskell-ml
+--
 -- AUTHOR: Mark Reid <mark.reid@gmail.com>
 -- CREATED: 2013-02-26
 module HTrees where
 
 import            Control.Arrow ((***))
 import            Control.Monad (join)
+import            Data.Monoid   (Monoid, mempty, mappend)
+import            Data.Foldable (foldMap)
 import            Data.Function (on)
-import            Data.List (delete, elemIndex, minimumBy, partition)
-import qualified  Data.Map.Lazy as Map
-import            Data.Maybe (fromJust, mapMaybe)
-import            GHC.Exts (groupWith)
+import            Data.List (minimumBy, partition)
 
+import qualified  Data.Map.Lazy as Map
 --------------------------------------------------------------------------------
 -- Data and prediction
 -- An example is an instance labelled with a double
@@ -45,10 +48,7 @@ makeExamplesWith f is = [ Ex i (f i) | i <- is ]
 type Attribute a = (a -> Value)
 
 -- A data set is a collection of examples and attributes
-data DataSet a = DS {
-  features :: [Attribute a],
-  examples :: [Example a]
-} 
+data DataSet a = DS { features :: [Attribute a], examples :: [Example a] } 
 
 size :: DataSet a -> Int
 size = length . examples
@@ -62,83 +62,86 @@ labels = map label . examples
 -- A decision tree consists of internal nodes which split and leaf nodes
 -- which make predictions
 type Model a = (a -> Label)
-data Tree a = Node (a -> Tree a) | Leaf (Model a)
+data Tree a = Node (Split a) (Tree a) (Tree a) | Leaf (Model a)
 
 -- Simple prediction with a tree involves running an instance down to a leaf
 -- and predicting with the model found there.
 predictWith :: Tree a -> a -> Label
-predictWith (Leaf f) x      = f x
-predictWith (Node branch) x = predictWith (branch x) x
+predictWith (Leaf f) x = f x
+predictWith (Node (Split attr val) left right) x 
+  | (attr x < val)  = predictWith left x
+  | otherwise       = predictWith right x
 
 -- Building a tree involves either: 
 --  A) Finding a good split for the current examples and refining the tree
 --  B) Fitting a model to the examples and returning a leaf
 build :: Int -> DataSet a -> Tree a
-build depth ds
-  | depth > 1 || size ds < 5   = Leaf $ meanModel (examples ds)
-  | otherwise                  = Node $ (build (depth + 1) . splitOn best ds)
+build depth ds@(DS fs exs)
+  | depth > 1 || size ds < 5   = Leaf $ meanModel exs
+  | otherwise                  = Node split left right
   where
-    best = findBestSplit variance ds
+    split = findBestSplit variance ds
+    test = (< threshold split) . (attribute split). inst
+    (left, right) = join (***) (build (depth+1) . DS fs) $ partition test exs
 
--- Creates a function that maps instances to a 
--- splitOn :: Split a -> DataSet a -> a -> Tree a
-splitOn :: Ord k => (a -> k) -> DataSet a -> a -> DataSet a
-splitOn split ds i = (DS fs) . Map.findWithDefault [] (split i) $ exSplits
-  where
-    exSplits = parts split exs
-    exs = examples ds 
-    fs  = features ds
+--------------------------------------------------------------------------------
+-- Impurity Measures
 
--- parts :: Ord k => [Example a] -> Split a -> Map.Map k [Example a]
--- parts :: Split a -> [Example a] -> Map.Map k [Example a]
-parts :: Ord k => (a -> k) -> [Example a] -> Map.Map k [Example a]
-parts split = foldr add Map.empty 
-  where
-    add ex = Map.insertWith (++) (split $ inst ex) [ex]
+-- A statistic is a Monoid with an associated ``weight'' (e.g., # of samples)
+-- and functions to put samples in and get summaries out. 
+class Monoid a => Statistic a where
+  fromSample :: Double -> a
+  toDouble   :: a -> Double
+  weight     :: a -> Double
+
+-- Variance works by keep a running some of values and a sum of squared values
+-- (Note: This is *not* a numerically stable implementation)
+newtype Variance = Var (Double, Double, Double)
+variance = fromSample :: Label -> Variance
+
+instance Monoid Variance where
+  mempty = Var (0,0,0)
+  mappend (Var (nx,sx,sx2)) (Var (ny,sy,sy2)) = Var (nx+ny,sx+sy,sx2+sy2)
+
+instance Statistic Variance where
+  fromSample v            = Var (1, v, v**2)
+  weight (Var (n,_,_))    = n
+  toDouble (Var (n,s,s2)) = s2/n - (s/n)**2
 
 --------------------------------------------------------------------------------
 -- Splits
 
--- A Split is a function that returns LT, GT or EQ
-type Split a = a -> Bool
+-- A Split is puts each instance into one of two classes by testing 
+-- an attribute against a threshold.
+data Split a = Split { attribute :: Attribute a, threshold :: Value }
 
 -- Build all possible splits for a given data set
-allSplits :: DataSet a -> [Split a]
-allSplits ds = [makeSplit attr v | attr <- features ds, v <- values attr ds]
+-- allSplits :: DataSet a -> [Split a]
+allSplits ds = [Split attr v | attr <- features ds, v <- values attr]
   where
-    values attr = valuesFor attr 
-
-makeSplit :: Attribute a -> Value -> Split a
-makeSplit attr threshold = (< threshold) . attr
-
-valuesFor :: Attribute a -> DataSet a -> [Value]
-valuesFor attr = map (attr . inst) . examples
-
--- Region evaluation
-type ImpurityMeasure = [Label] -> Double
-
--- Computes the variance of the given data set 
-variance :: ImpurityMeasure
-variance xs = foldr ((+) . (^2) . (subtract (mean xs))) 0 xs
+    values attr = map (attr . inst) . examples $ ds
 
 -- Given several label lists returns a size weighted average impurity
-quality :: ImpurityMeasure -> [[Label]] -> Double
-quality measure [] = read "Infinity" 
-quality measure ls = sum (zipWith (*) qualities sizes) / size ls
+-- quality :: ImpurityMeasure -> LabelSplit -> Double
+quality :: Statistic s => (Map.Map Value s, Maybe s, Map.Map Value s) -> Double
+quality (left, Nothing, right) = error "Pivot label not found!"
+quality (left, Just lab, right) = 
+  (weight leftSum) * (toDouble leftSum) + (weight rightSum) * (toDouble rightSum)
   where
-    size      = fromIntegral . length 
-    qualities = map measure ls
-    sizes     = map size ls
+    leftSum = foldMap id left 
+    rightSum = foldMap id right
 
 -- Computes the quality of a split applied to a particular data set
-splitQuality :: ImpurityMeasure -> DataSet a -> Split a -> Double
-splitQuality measure ds split = quality measure labelSets
+splitQuality :: Statistic s => (Label -> s) -> DataSet a -> Split a -> Double
+splitQuality stat ds split = quality splits
   where
-    exampleLists = groupWith (split . inst) (examples ds)
-    labelSets = map (map label) exampleLists
+    instValue   = (attribute split) . inst
+    add ex      = Map.insertWith mappend (instValue ex) (stat . label $ ex)
+    labelStats  = foldr add Map.empty $ examples ds
+    splits      = Map.splitLookup (threshold split) labelStats
 
 -- Get best split for the given data set as assessed by the impurity measure
-findBestSplit :: ImpurityMeasure -> DataSet a -> Split a
+findBestSplit :: Statistic s => (Label -> s) -> DataSet a -> Split a
 findBestSplit im ds = minimumBy (compare `on` splitQuality im ds) (allSplits ds)
 
 --------------------------------------------------------------------------------
