@@ -23,24 +23,24 @@
 -- CREATED: 2013-02-26
 module HTrees where
 
-import            Control.Arrow ((***))
-import            Control.Monad (join)
-import            Data.Monoid   (Monoid, mempty, mappend)
-import            Data.Foldable (foldMap)
-import            Data.Function (on)
-import            Data.List (minimumBy, partition, sortBy)
+import            Control.Applicative ((<$>), (<*>))
+import            Control.Arrow       ((***))
+import            Control.Monad       (join)
+import            Data.Foldable       (foldMap)
+import            Data.Function       (on)
+import            Data.List           (minimumBy, partition, sortBy)
+import            Data.Monoid         (Monoid, mempty, mappend)
 
 import qualified  Data.Map.Lazy as Map
 --------------------------------------------------------------------------------
 -- Data and prediction
 -- An example is an instance labelled with a double
 type Label = Double
-type Value = Double
-type Attribute a = (a -> Value)
-
 data Example a = Ex { inst :: a, label :: Label } deriving Show
 
 -- A data set is a collection of examples and attributes
+type Value = Double
+type Attribute a = (a -> Value)
 data DataSet a = DS { features :: [Attribute a], examples :: [Example a] } 
 
 size :: DataSet a -> Int
@@ -64,12 +64,19 @@ predictWith (Node (Split attr val) left right) x
 --  B) Fitting a model to the examples and returning a leaf
 build :: Int -> DataSet a -> Tree a
 build depth ds@(DS fs exs)
-  | depth > 1 || size ds < 5   = Leaf $ meanModel exs
+  | depth > 5 || size ds < 10  = Leaf $ meanModel exs
   | otherwise                  = Node split left right
   where
     split = findBestSplit variance ds
     test = (< threshold split) . (attribute split). inst
     (left, right) = join (***) (build (depth+1) . DS fs) $ partition test exs
+
+-- Evaluate the predictions made by a tree
+evaluate :: Tree a -> [Example a] -> Double
+evaluate tree = mean . map (loss <$> label <*> (predictWith tree . inst))
+
+loss :: Label -> Label -> Double
+loss v v' = (v - v')**2
 
 --------------------------------------------------------------------------------
 -- Impurity Measures

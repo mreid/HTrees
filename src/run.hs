@@ -12,11 +12,10 @@ import Data.Vector ((!), Vector, fromList)
 main = do 
   dataset <- readDataset
   putStrLn "Builing..."
-  let tree = build 1 dataset
+  let tree = build 0 dataset
   putStrLn "Done!"
 
-  putStrLn $ show $ predictWith tree (head . map inst . examples $ dataset)
-  return $ (dataset, build  1 dataset)
+  putStrLn $ show $ evaluate tree (examples dataset)
 
 readDataset = do 
   csv <- readCSVFile defCSVSettings { csvSep = ';' } "data/winequality-red.csv" 
