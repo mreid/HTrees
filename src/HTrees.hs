@@ -1,4 +1,5 @@
--- {-# LANGUAGE TypeSynonymInstances, FlexibleInstances #-}
+-- HTrees - Simple tree learning.
+--
 -- An attempt at writing a simple decision tree learner, with an emphasis
 -- on expression and generality rather than efficiency.
 --
@@ -14,11 +15,6 @@
 -- collection of possible projections be provided along with the instances.
 -- These are attributes that map instances to orderable (e.g., continuous) or 
 -- equality-testable values (e.g., categorical).
---
--- In the case of the wine dataset from UCI, the source attribute can return
--- a Wine value which has projections 
---    fixedAcidity :: Wine -> Double
---    volatileAcidity :: Wine -> Double
 --
 -- References:
 --  * An alternative implementation: https://github.com/ajtulloch/haskell-ml
@@ -80,10 +76,14 @@ build depth ds@(DS fs exs)
 
 -- A statistic is a Monoid with an associated ``weight'' (e.g., # of samples)
 -- and functions to put samples in and get summaries out. 
-class Monoid a => Statistic a where
-  fromSample :: Double -> a
-  toDouble   :: a -> Double
-  weight     :: a -> Double
+class Monoid s => Stat s where
+  fromSample :: Double -> s
+  toDouble   :: s -> Double
+  weight     :: s -> Double
+
+-- Combine two statistics by taking their weighted average
+merge :: Stat s => s -> s -> Double
+merge s s' = (weight s) * (toDouble s) + (weight s') * (toDouble s')
 
 -- Variance works by keep a running some of values and a sum of squared values
 -- (Note: This is *not* a numerically stable implementation)
@@ -94,7 +94,7 @@ instance Monoid Variance where
   mempty = Var (0,0,0)
   mappend (Var (nx,sx,sx2)) (Var (ny,sy,sy2)) = Var (nx+ny,sx+sy,sx2+sy2)
 
-instance Statistic Variance where
+instance Stat Variance where
   fromSample v            = Var (1, v, v**2)
   weight (Var (n,_,_))    = n
   toDouble (Var (n,s,s2)) = s2/n - (s/n)**2
@@ -107,31 +107,37 @@ instance Statistic Variance where
 data Split a = Split { attribute :: Attribute a, threshold :: Value } 
 
 -- Build all possible splits for a given data set
--- allSplits :: DataSet a -> [Split a]
+allSplits :: DataSet a -> [Split a]
 allSplits ds = [Split attr v | attr <- features ds, v <- values attr]
   where
     values attr = map (attr . inst) . examples $ ds
 
-quality :: Statistic s => (Value, s) -> (Value, s) -> (Value,Double)
-quality (v,left) (v',right) = (v,(weight left) * (toDouble left) + (weight right) * (toDouble right))
-
 -- Get best split for the given data set as assessed by the impurity measure
-findBestSplit :: Statistic s => (Label -> s) -> DataSet a -> Split a
-findBestSplit stat ds = fst . minimumBy (compare `on` snd) $ perAttr
+findBestSplit :: Stat s => (Label -> s) -> DataSet a -> Split a
+findBestSplit stat ds = fst . minimumBy (compare `on` snd) $ bestPerAttr
   where
-    perAttr = map (bestSplitFor (examples ds) stat) (features ds)
+    bestPerAttr = map (bestSplit (examples ds) stat) $ features ds
 
-bestSplitFor :: Statistic s => [Example a] -> (Label -> s) -> Attribute a -> (Split a, Double)
-bestSplitFor exs stat attr = (Split attr val, score)
+-- Get the best split and its score for the given statistic and attribute
+bestSplit :: Stat s => [Example a] -> (Label -> s) -> Attribute a -> (Split a, Double)
+bestSplit exs stat attr = minimumBy (compare `on` snd) scores
   where
-    sorted = sortBy (compare `on` (attr . inst)) exs
-    accum  = foldMap (f stat attr [])
-    scores = zipWith quality (accum sorted) (accum . reverse $ sorted)
-    (val, score) = minimumBy (compare `on` snd) scores
-
-f :: Statistic s => (Label -> s) -> Attribute a -> [(Value, s)] -> Example a ->  [(Value, s)]
-f stat attr [] ex = [(attr . inst $ ex, stat . label $ ex)]
-f stat attr pairs ex = (attr . inst $ ex, (stat . label $ ex) `mappend` (snd . head $ pairs)) : pairs
+    -- Sort examples by values for attribute
+    sorted    = sortBy (compare `on` (attr . inst)) exs
+    -- Roll together stats from front and back of sorted list of examples
+    forwards  = foldMap (roll stat attr) sorted
+    backwards = reverse . foldMap (roll stat attr) . reverse $ sorted 
+    scores    = zipWith scoreSplit forwards backwards
+    scoreSplit (x, sx) (_, sx') = (x, merge sx sx')
+  
+-- Extracts and accumulates the given stat for the attribute from the example
+roll :: Stat s => (Label -> s) -> Attribute a -> Example a -> [(Split a, s)]
+roll stat attr = f []
+  where 
+    f [] ex = [(exAttr $ ex, exStat $ ex)]
+    f vs ex = (exAttr $ ex, (exStat $ ex) `mappend` (snd . head $ vs)) : vs
+    exAttr  = Split attr . (attr . inst)
+    exStat  = stat . label 
 
 --------------------------------------------------------------------------------
 -- Models
