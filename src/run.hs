@@ -12,7 +12,7 @@ import Data.Vector ((!), Vector, fromList)
 main = do 
   dataset <- readDataset
   putStrLn "Builing..."
-  let config = Config { maxDepth = 7, minNodeSize = 1  }
+  let config = Config { maxDepth = 30, minNodeSize = 20  }
   let tree = buildWith config variance dataset
   putStrLn $ show tree
   putStrLn "Done!"

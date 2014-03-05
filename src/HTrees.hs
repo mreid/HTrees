@@ -117,7 +117,9 @@ class Monoid s => Stat s where
 
 -- Combine two statistics by taking their weighted average
 merge :: Stat s => s -> s -> Double
-merge s s' = (weight s) * (toDouble s) + (weight s') * (toDouble s')
+merge s s' = ( (weight s) * (toDouble s) + (weight s') * (toDouble s') ) / both
+  where
+    both = (weight s) + (weight s')
 
 -- Variance works by keep a running some of values and a sum of squared values
 -- (Note: This is *not* a numerically stable implementation)
@@ -141,7 +143,7 @@ instance Stat Variance where
 data Split a = Split { score :: Double, attr :: Attribute a, value :: Value } 
 instance Show (Split a) where 
   show (Split q (Attr name _) v) 
-    = name ++ " <= " ++ (show v) ++ " (Quality: " ++ show q ++ ")"
+    = name ++ " <= " ++ (show v) ++ " (Impurity: " ++ show q ++ ")"
 
 -- Build all possible splits for a given data set
 allSplits :: DataSet a -> [Split a]
@@ -162,17 +164,13 @@ bestSplit exs stat attr = minimumBy (compare `on` score) scores
     -- Sort examples by values for attribute
     sorted    = sortBy (compare `on` (proj attr . inst)) exs
     -- Roll together stats from front and back of sorted list of examples
-    forwards  = foldr (roll stat attr) [] sorted
-    backwards = reverse . foldr (roll stat attr) [] . reverse $ sorted 
+    forwards  = foldr roll [] sorted
+    backwards = reverse . foldr roll [] . reverse . tail $ sorted 
     scores    = zipWith scoreSplit forwards backwards
     scoreSplit (x, sx) (_, sx') = x { score = merge sx sx'}
-
--- Extracts and accumulates the given stat for the attribute from the example
-roll :: Stat s => (Label -> s) -> Attribute a -> Example a -> [(Split a, s)] -> [(Split a, s)]
-roll stat attr ex vs
-  | length vs == 0 = [(exSplit $ ex, exStat $ ex)]
-  | otherwise      = (exSplit $ ex, (exStat $ ex) `mappend` (snd . head $ vs)) : vs
-  where 
+    -- Accumulator 
+    roll ex [] = [(exSplit ex, exStat ex)]
+    roll ex vs = (exSplit ex, (exStat ex) `mappend` (snd . head $ vs)) : vs
     exSplit = Split infinity attr . (proj attr . inst)
     exStat  = stat . label 
 
