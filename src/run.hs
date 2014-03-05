@@ -12,17 +12,20 @@ import Data.Vector ((!), Vector, fromList)
 main = do 
   dataset <- readDataset
   putStrLn "Builing..."
-  let tree = build 0 dataset
+  let config = Config { maxDepth = 7, minNodeSize = 1  }
+  let tree = buildWith config variance dataset
+  putStrLn $ show tree
   putStrLn "Done!"
-
-  putStrLn $ show $ evaluate tree (examples dataset)
+  
+  putStr "Mean square error: "
+  putStrLn $ show $ evaluate squareLoss tree (examples dataset)
 
 readDataset = do 
   csv <- readCSVFile defCSVSettings { csvSep = ';' } "data/winequality-red.csv" 
 
   let (names, instances) = parseInstances csv
   let keys = delete "quality" names
-  let attrs = [ (! (fromJust . elemIndex k $ names)) | k <- keys ]
+  let attrs = [ Attr k (! (fromJust . elemIndex k $ names)) | k <- keys ]
   let target = (! (fromJust . elemIndex "quality" $ names))
   
   return $ DS attrs (makeExamplesWith target instances)
