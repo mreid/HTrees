@@ -33,30 +33,29 @@ import            Data.Monoid         (Monoid, mempty, mappend)
 
 import qualified  Data.Map.Lazy as Map
 
-infinity :: Double
-infinity = read "Infinity" :: Double
 --------------------------------------------------------------------------------
 -- Data and prediction
 -- An example is an instance labelled with a double
-type Label = Double
-data Example a = Ex { inst :: a, label :: Label } deriving Show
+type Value = Double
+data Example a l = Ex { inst :: a, label :: l } deriving Show
 
 -- A data set is a collection of examples and attributes
-type Value = Double
-data Attribute a = Attr { name :: String, proj :: a -> Value }
+data Attribute a = Attr { name :: String, project :: a -> Value }
 instance Show (Attribute a) where show (Attr name _) = name
 
-data DataSet a = DS { features :: [Attribute a], examples :: [Example a] } 
+projectEx :: Attribute a -> Example a l -> Value
+projectEx attr = project attr . inst
+
+data DataSet a l = DS { attributes :: [Attribute a], examples :: [Example a l] } 
   deriving Show
 
 -- A decision tree consists of internal nodes which split and leaf nodes
 -- which make predictions
-data Tree a = Node (Split a) (Tree a) (Tree a) | Leaf (Model a)
-instance Show (Tree a) where show t = showTree 0 t
+data Tree a l = Node (Split a) (Tree a l) (Tree a l) | Leaf (Model a l)
+instance Show (Tree a l) where show t = showTree 0 t
 
-showTree :: Int -> Tree a -> String
-showTree d (Node s l r) = 
-  indent d (show s) ++ ":\n" ++ 
+showTree :: Int -> Tree a l -> String
+showTree d (Node s l r) = indent d (show s) ++ ":\n" ++ 
    indent d (showTree (d+1) l) ++ "\n" ++ 
    indent d (showTree (d+1) r)
 showTree d (Leaf m)     = indent d (show m)
@@ -64,11 +63,11 @@ indent d = (replicate d ' ' ++)
 
 -- Simple prediction with a tree involves running an instance down to a leaf
 -- and predicting with the model found there.
-predictWith :: Tree a -> a -> Label
+predictWith :: Tree a l -> a -> l
 predictWith (Leaf m) x = (fn m) x
-predictWith (Node (Split _ attr val) left right) x 
-  | ((proj attr) x < val)  = predictWith left x
-  | otherwise              = predictWith right x
+predictWith (Node (Split attr val _) left right) x 
+  | ((project attr) x < val)  = predictWith left x
+  | otherwise                 = predictWith right x
 
 -- Configuration variables for tree building kept here.
 data Config = Config { maxDepth :: Int,  minNodeSize :: Int }
@@ -84,34 +83,43 @@ isFinished (Config maxDepth minNodeSize) (leftExs, rightExs)
 -- Building a tree involves either: 
 --  A) Finding a good split for the current examples and refining the tree
 --  B) Fitting a model to the examples and returning a leaf
-buildWith :: Stat s => Config -> (Label -> s) -> DataSet a -> Tree a
-buildWith config stat ds
-  | isFinished config splitExs  = Leaf $ meanModel (examples ds)
+buildWith :: Stat s => Config -> (l -> s) -> ([Example a l] -> Model a l) -> DataSet a l -> Tree a l
+buildWith config stat leafModel ds
+  | isFinished config splitExs  = Leaf $ leafModel (examples ds)
   | otherwise                   = Node split left right
   where
     split     = findBestSplit stat ds
-    test      = (<= value split) . (proj $ attr split). inst
+    test      = (<= value split) . projectEx (attr split)
     splitExs  = partition test (examples ds)
     newConfig = config { maxDepth = maxDepth config - 1 }
-    feats     = features ds
-    (left, right) = join (***) (buildWith newConfig stat . DS feats) splitExs
+    attrs     = attributes ds
+    (left, right) = join (***) (buildWith newConfig stat leafModel. DS attrs) splitExs
 
 -- Evaluate the predictions made by a tree
-evaluate :: Loss -> Tree a -> [Example a] -> Double
+evaluate :: Loss l -> Tree a l -> [Example a l] -> Double
 evaluate loss tree = mean . map (loss <$> label <*> (predictWith tree . inst))
 
 -- The value of loss p a is the penalty for predicting p when true label is a.
-type Loss = Label -> Label -> Double
-squareLoss :: Loss
+type Loss l = l -> l -> Double
+squareLoss :: Loss Double
 squareLoss v v' = (v - v')**2
 
 --------------------------------------------------------------------------------
 -- Impurity Measures
+type Histogram = [(Int,Double)]
+newtype Entropy = Ent Histogram
+instance Monoid Entropy where
+  mempty = Ent []
+  mappend (Ent v1) (Ent v2) = Ent (v1++v2)
+instance Stat Entropy where
+  toDouble (Ent vs) = undefined
+  weight (Ent vs) = undefined
+entropy :: Int -> Entropy
+entropy l = Ent [(l,1)]
 
 -- A statistic is a Monoid with an associated ``weight'' (e.g., # of samples)
 -- and functions to put samples in and get summaries out. 
 class Monoid s => Stat s where
-  fromSample :: Double -> s
   toDouble   :: s -> Double
   weight     :: s -> Double
 
@@ -124,14 +132,13 @@ merge s s' = ( (weight s) * (toDouble s) + (weight s') * (toDouble s') ) / both
 -- Variance works by keep a running some of values and a sum of squared values
 -- (Note: This is *not* a numerically stable implementation)
 newtype Variance = Var (Double, Double, Double)
-variance = fromSample :: Label -> Variance
+variance v = Var (1, v, v**2)
 
 instance Monoid Variance where
   mempty = Var (0,0,0)
   mappend (Var (nx,sx,sx2)) (Var (ny,sy,sy2)) = Var (nx+ny,sx+sy,sx2+sy2)
 
 instance Stat Variance where
-  fromSample v            = Var (1, v, v**2)
   weight (Var (n,_,_))    = n
   toDouble (Var (n,s,s2)) = s2/n - (s/n)**2
 
@@ -140,48 +147,49 @@ instance Stat Variance where
 
 -- A Split is puts each instance into one of two classes by testing 
 -- an attribute against a threshold.
-data Split a = Split { score :: Double, attr :: Attribute a, value :: Value } 
+data Split a = Split { attr :: Attribute a, value :: Value, score :: Double} 
 instance Show (Split a) where 
-  show (Split q (Attr name _) v) 
+  show (Split (Attr name _) v q) 
     = name ++ " <= " ++ (show v) ++ " (Impurity: " ++ show q ++ ")"
 
 -- Build all possible splits for a given data set
-allSplits :: DataSet a -> [Split a]
-allSplits ds = [Split infinity attr v | attr <- features ds, v <- values attr]
+allSplits :: DataSet a l -> [Split a]
+allSplits ds = [Split attr v infty | attr <- attributes ds, v <- values attr]
   where
-    values attr = map (proj attr . inst) . examples $ ds
+    infty = read "Infinity" :: Double
+    values attr = map (projectEx attr) . examples $ ds
 
 -- Get best split for the given data set as assessed by the impurity measure
-findBestSplit :: Stat s => (Label -> s) -> DataSet a -> Split a
+findBestSplit :: Stat s => (l -> s) -> DataSet a l -> Split a
 findBestSplit stat ds = minimumBy (compare `on` score) $ bestPerAttr
   where
-    bestPerAttr = map (bestSplit (examples ds) stat) $ features ds
+    bestPerAttr = map (bestSplit (examples ds) stat) $ attributes ds
 
 -- Get the best split and its score for the given statistic and attribute
-bestSplit :: Stat s => [Example a] -> (Label -> s) -> Attribute a -> Split a
-bestSplit exs stat attr = minimumBy (compare `on` score) scores
+bestSplit :: Stat s => [Example a l] -> (l -> s) -> Attribute a -> Split a
+bestSplit exs stat attr = minimumBy (compare `on` score) pairs
   where
     -- Sort examples by values for attribute
-    sorted    = sortBy (compare `on` (proj attr . inst)) exs
+    sorted    = sortBy (compare `on` projectEx attr) exs
+    labels    = map label sorted
     -- Roll together stats from front and back of sorted list of examples
-    forwards  = foldr roll [] sorted
-    backwards = reverse . foldr roll [] . reverse . tail $ sorted 
-    scores    = zipWith scoreSplit forwards backwards
-    scoreSplit (x, sx) (_, sx') = x { score = merge sx sx'}
+    -- Note: backwards list is one shorter since forward splits test "<= v"
+    forwards  = foldr accum [] labels
+    backwards = reverse . foldr accum [] . reverse . tail $ labels
+    scores    = zipWith merge forwards backwards
+    pairs     = zipWith (Split attr) (map (projectEx attr) sorted) scores
     -- Accumulator 
-    roll ex [] = [(exSplit ex, exStat ex)]
-    roll ex vs = (exSplit ex, (exStat ex) `mappend` (snd . head $ vs)) : vs
-    exSplit = Split infinity attr . (proj attr . inst)
-    exStat  = stat . label 
+    accum l [] = [stat l]
+    accum l vs = (stat l `mappend` head vs) : vs
 
 --------------------------------------------------------------------------------
 -- Models
-data Model a = Model { desc :: String, fn :: (a -> Label), input :: [Example a] }
-instance Show (Model a) where 
+data Model a l = Model { desc :: String, fn :: (a -> l), input :: [Example a l] }
+instance Show (Model a l) where 
   show (Model d m exs) = d ++ " (Samples: " ++ show (length exs) ++ ")"
 
 -- Constructs a constant model which returns the mean of the examples
-meanModel :: [Example a] -> Model a
+meanModel :: [Example a Double] -> Model a Double
 meanModel xs = Model ("Predict " ++ show v) (const v) xs
   where
     v = (mean . map label $ xs)

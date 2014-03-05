@@ -7,21 +7,33 @@ import Data.List
 import Data.Maybe
 import qualified  Data.Map.Lazy as Map
 import Data.Vector ((!), Vector, fromList)
+import System.Environment (getArgs)
 
 -- Main
 main = do 
-  dataset <- readDataset
-  putStrLn "Builing..."
-  let config = Config { maxDepth = 30, minNodeSize = 20  }
-  let tree = buildWith config variance dataset
-  putStrLn $ show tree
-  putStrLn "Done!"
-  
-  putStr "Mean square error: "
-  putStrLn $ show $ evaluate squareLoss tree (examples dataset)
+  args <- getArgs 
+  let filename = head args
 
-readDataset = do 
-  csv <- readCSVFile defCSVSettings { csvSep = ';' } "data/winequality-red.csv" 
+  -- Read and parse the data set
+  putStr $ "Reading " ++ filename ++ "... "
+  dataset <- readDataset filename
+  putStrLn $ (show . length . examples $ dataset) ++ " samples."
+  
+  -- Construct a tree
+  putStr "Builing tree..."
+  let config = Config { maxDepth = 30, minNodeSize = 20  }
+  let tree = buildWith config variance meanModel dataset
+  putStrLn "Done!"
+  putStrLn $ show tree
+
+  -- Evaluation the tree on the training set
+  putStrLn "Evaluating ..."
+  let evaluation = evaluate squareLoss tree (examples dataset)
+  putStrLn $ "MSE = " ++ show evaluation
+
+-- Reads in the "SSV" (semi-colon separated) file and turn it into data
+readDataset filename = do 
+  csv <- readCSVFile defCSVSettings { csvSep = ';' } filename
 
   let (names, instances) = parseInstances csv
   let keys = delete "quality" names
@@ -30,7 +42,7 @@ readDataset = do
   
   return $ DS attrs (makeExamplesWith target instances)
   
-makeExamplesWith :: (a -> Label) -> [a] -> [Example a]
+makeExamplesWith :: (a -> l) -> [a] -> [Example a l]
 makeExamplesWith f is = [ Ex i (f i) | i <- is ]
 
 --------------------------------------------------------------------------------
