@@ -79,7 +79,8 @@ data Config l p s = Config {
   leafModel   :: [Example l] -> Model p,
   stat        :: Stat l s
 }
-defRegConfig = Config 32 10 meanModel (Stat toMoment variance)
+defRegConfig    = Config 32 10 meanModel (Stat toMoment variance)
+defClassConfig  = Config 32 10 majModel (Stat toHistogram entropy)
 
 -- Check whether tree building should stop by seeing whether maximum depth
 -- has been reached or the current dataset is too small.
@@ -112,8 +113,14 @@ type Loss l p = l -> p -> Double
 squareLoss :: Loss Double Double
 squareLoss v v' = (v - v')**2
 
+zeroOneLoss :: Loss Int Int
+zeroOneLoss v v' = if v == v' then 0 else 1
 --------------------------------------------------------------------------------
 -- Impurity Measures
+
+-- A Stat has a function for taking a value to an Aggregate and summarising
+-- an Aggregate of the same type
+data Stat l s = Stat { aggregator :: l -> s, summary :: s -> Double }
 
 -- Combine two statistics by taking their weighted average
 mergeWith :: Aggregate a => Stat l a -> a -> a -> Double
@@ -123,13 +130,17 @@ mergeWith stat a a'
     summariser = summary stat
     both = (size a) + (size a')
 
--- Variance works by keep a running some of values and a sum of squared values
--- (Note: This is *not* a numerically stable implementation)
-
+-- Returns the variance from a moment aggregation
+-- (Note: This is *not* a numerically stable way to do things)
+variance :: Moments -> Double
 variance (Mom (n, s, s2)) =  s2/n - (s/n)**2
 
-log2 = logBase 2
-  -- summary (Ent (Hist (n,fs))) = sum (zipWith (*) ps (map log2 ps))
+-- Returns the entropy of a histogram
+entropy :: Histogram -> Double
+entropy (Hist (n, fs)) = - sum (zipWith (*) ps (map log2 ps))
+  where
+    ps   = map (/ n) . Map.elems $ fs
+    log2 = logBase 2
 --------------------------------------------------------------------------------
 -- Aggregators are Monoids that collect values into summaries with sizes
 class Monoid s => Aggregate s where
@@ -145,17 +156,14 @@ instance Monoid Moments where
   mappend (Mom (n,s,s2)) (Mom (n',s',s2')) = (Mom (n+n',s+s',s2+s2'))
 
 -- Creates a histogram of the discrete values it sees
-newtype Histogram = Hist (Double,[(Int,Double)])
-toHistogram i = Hist (1,[(i, 1)])
+newtype Histogram = Hist (Double,Map.Map Int Double)
+toHistogram i = Hist (1, Map.singleton i 1)
 
-instance Aggregate Histogram where size (Hist (n,fs)) = foldr (+) 0 . map snd $ fs
+instance Aggregate Histogram where size (Hist (n,fs)) = Map.foldr (+) 0 fs
 instance Monoid Histogram where
-  mempty = Hist (0,[]) 
-  mappend = undefined
-
--- A Stat has a function for taking a value to an Aggregate and summarising
--- an Aggregate of the same type
-data Stat l s = Stat { aggregator :: l -> s, summary :: s -> Double }
+  mempty = Hist (0,Map.empty) 
+  mappend (Hist (n1, fs1)) (Hist (n2, fs2))
+    = Hist (n1+n2, Map.unionWith (+) fs1 fs2)
 
 --------------------------------------------------------------------------------
 -- Splits
@@ -213,4 +221,11 @@ meanModel xs = Model ("Predict " ++ show v) (const v) xs
 -- Compute the mean of a list of numbers
 mean :: [Double] -> Double
 mean xs = (sum xs) / (fromIntegral . length $ xs)
+
+-- Compute the majority class model from a collection of examples
+majModel :: [Example Int] -> Model Int
+majModel xs = Model ("Predict " ++ show v) (const v) xs
+  where
+    Hist (n,fs) = foldMap (toHistogram . label) xs
+    v = fst . Map.findMax $ fs
 
