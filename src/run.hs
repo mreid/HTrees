@@ -21,8 +21,12 @@ main = do
   
   -- Construct a tree
   putStr "Builing tree..."
-  let config = Config { maxDepth = 30, minNodeSize = 20  }
-  let tree = buildWith config variance meanModel dataset
+  let config = Config { 
+    maxDepth = 30, 
+    minNodeSize = 20, 
+    leafModel = meanModel,  
+    stat = Stat { aggregator = toMoment, summary = variance } }
+  let tree = buildWith config dataset
   putStrLn "Done!"
   putStrLn $ show tree
 
@@ -42,7 +46,7 @@ readDataset filename = do
   
   return $ DS attrs (makeExamplesWith target instances)
   
-makeExamplesWith :: (a -> l) -> [a] -> [Example a l]
+makeExamplesWith :: (Instance -> l) -> [Instance] -> [Example l]
 makeExamplesWith f is = [ Ex i (f i) | i <- is ]
 
 --------------------------------------------------------------------------------
@@ -54,7 +58,7 @@ parseInstances rows = (names, instances)
     names = Map.keys . head $ rows
     instances = map (makeInstance names) rows
 
-makeInstance :: [String] -> MapRow String -> Vector Double
+makeInstance :: [String] -> MapRow String -> Instance
 makeInstance names row = fromList . map (makeValue . fromJust . flip Map.lookup row) $  names
 
 makeValue :: String -> Double
