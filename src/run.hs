@@ -24,15 +24,15 @@ main = do
   let config = Config { 
     maxDepth = 30, 
     minNodeSize = 20, 
-    leafModel = majModel,  
-    stat = Stat { aggregator = toHistogram, summary = entropy } }
+    leafModel = meanModel,  
+    stat = Stat { aggregator = toMoment, summary = variance } }
   let tree = buildWith config dataset
   putStrLn "Done!"
   putStrLn $ show tree
 
   -- Evaluation the tree on the training set
   putStrLn "Evaluating ..."
-  let evaluation = evaluate zeroOneLoss tree (examples dataset)
+  let evaluation = evaluate squareLoss tree (examples dataset)
   putStrLn $ "MSE = " ++ show evaluation
 
 -- Reads in the "SSV" (semi-colon separated) file and turn it into data
@@ -42,7 +42,7 @@ readDataset filename = do
   let (names, instances) = parseInstances csv
   let keys = delete "quality" names
   let attrs = [ Attr k (! (fromJust . elemIndex k $ names)) | k <- keys ]
-  let target = round . (! (fromJust . elemIndex "quality" $ names)) 
+  let target = (! (fromJust . elemIndex "quality" $ names)) 
   
   return $ DS attrs (makeExamplesWith target instances)
   

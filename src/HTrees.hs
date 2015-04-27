@@ -1,4 +1,4 @@
--- {-# LANGUAGE ExistentialQuantification #-}
+{-# LANGUAGE FlexibleInstances #-}
 -- HTrees - Simple tree learning.
 --
 -- An attempt at writing a simple decision tree learner, with an emphasis
