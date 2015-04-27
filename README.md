@@ -1,7 +1,7 @@
 # HTrees
 
-The code here is an attempt to implement a very basic form of decision tree 
-learning in Haskell.
+This is an exercise in both improving my Haskell and better understanding how 
+decision tree learning works –- but mostly the former.
 
 Apart from split ordering, there is no attempt to make things efficient and
 there is currently no pruning or other standard tricks to improve the 
