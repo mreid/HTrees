@@ -39,7 +39,7 @@ main = do
 readDataset filename = do 
   csv <- readCSVFile defCSVSettings { csvSep = ';' } filename
 
-  let (names, instances) = parseInstances csv
+  let (names, instances) = parseInstances (toList csv)
   let keys = delete "quality" names
   let attrs = [ Attr k (! (fromJust . elemIndex k $ names)) | k <- keys ]
   let target = (! (fromJust . elemIndex "quality" $ names)) 

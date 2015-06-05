@@ -17,9 +17,9 @@ cabal-version:       >=1.10
 
 library
   exposed-modules:     HTrees
-  -- other-modules:       
-  -- other-extensions:    
-  build-depends:       base >=4.6 && <4.7,
+  -- other-modules:
+  -- other-extensions:
+  build-depends:       base >=4.6 && <4.8,
                        bytestring, containers, vector
   hs-source-dirs:      src/
   default-language:    Haskell2010
