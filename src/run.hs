@@ -2,12 +2,12 @@ module Main where
 
 import HTrees
 
-import Data.CSV.Conduit
-import Data.List
-import Data.Maybe
-import qualified  Data.Map.Lazy as Map
-import Data.Vector ((!), Vector, fromList)
-import System.Environment (getArgs)
+import           Data.CSV.Conduit
+import           Data.List
+import qualified Data.Map.Lazy      as Map
+import           Data.Maybe
+import           Data.Vector        (Vector, fromList, toList, (!))
+import           System.Environment (getArgs)
 
 -- Main
 main = do 
