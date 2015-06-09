@@ -2,12 +2,12 @@ module Main where
 
 import HTrees
 
-import Data.CSV.Conduit
-import Data.List
-import Data.Maybe
-import qualified  Data.Map.Lazy as Map
-import Data.Vector ((!), Vector, fromList)
-import System.Environment (getArgs)
+import           Data.CSV.Conduit
+import           Data.List
+import qualified Data.Map.Lazy      as Map
+import           Data.Maybe
+import           Data.Vector        (Vector, fromList, toList, (!))
+import           System.Environment (getArgs)
 
 -- Main
 main = do 
@@ -39,7 +39,7 @@ main = do
 readDataset filename = do 
   csv <- readCSVFile defCSVSettings { csvSep = ';' } filename
 
-  let (names, instances) = parseInstances csv
+  let (names, instances) = parseInstances (toList csv)
   let keys = delete "quality" names
   let attrs = [ Attr k (! (fromJust . elemIndex k $ names)) | k <- keys ]
   let target = (! (fromJust . elemIndex "quality" $ names)) 
