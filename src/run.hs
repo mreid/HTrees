@@ -2,6 +2,7 @@ module Main where
 
 import HTrees
 
+import           Control.Monad.IO.Class
 import           Data.CSV.Conduit
 import           Data.List
 import qualified Data.Map.Lazy      as Map
@@ -10,6 +11,7 @@ import           Data.Vector        (Vector, fromList, toList, (!))
 import           System.Environment (getArgs)
 
 -- Main
+main :: IO ()
 main = do 
   args <- getArgs 
   let filename = head args
@@ -36,6 +38,7 @@ main = do
   putStrLn $ "MSE = " ++ show evaluation
 
 -- Reads in the "SSV" (semi-colon separated) file and turn it into data
+readDataset :: MonadIO m => FilePath -> m (DataSet Double)
 readDataset filename = do 
   csv <- readCSVFile defCSVSettings { csvSep = ';' } filename
 
