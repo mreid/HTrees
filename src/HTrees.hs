@@ -81,6 +81,7 @@ data Config l p s = Config {
   leafModel   :: [Example l] -> Model p,
   stat        :: Stat l s
 }
+
 defRegConfig :: Config Double Double Moments
 defRegConfig    = Config 32 10 meanModel (Stat toMoment variance)
 
