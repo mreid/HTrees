@@ -172,43 +172,45 @@ instance Monoid Histogram where
 -- an attribute against a threshold.
 data Split = Split { attr :: Attribute,  value :: Value, score :: Double} 
 instance Show Split where 
-  show (Split (Attr name _) v q) 
-    = name ++ " <= " ++ (show v) ++ " (Impurity: " ++ show q ++ ")"
+  show (Split (Attr name' _) v q) 
+    = name' ++ " <= " ++ (show v) ++ " (Impurity: " ++ show q ++ ")"
 
 -- Build all possible splits for a given data set
 allSplits :: DataSet l -> [Split] 
-allSplits ds = [Split attr v infty | attr <- attributes ds, v <- values attr]
+allSplits ds = [Split attr' v infty | attr' <- attributes ds, v <- values attr']
   where
     infty = read "Infinity" :: Double
-    values attr = map (projectEx attr) . examples $ ds
+    values attr' = map (projectEx attr') . examples $ ds
 
 -- Get best split for the given data set as assessed by the impurity measure
 findBestSplit :: (Aggregate a, Num l) => Stat l a -> DataSet l -> Split
-findBestSplit stat ds = minimumBy (compare `on` score) $ bestPerAttr
+findBestSplit stat' ds = minimumBy (compare `on` score) $ bestPerAttr
   where
-    bestPerAttr = map (bestSplit (examples ds) stat) $ attributes ds
+    bestPerAttr = map (bestSplit (examples ds) stat') $ attributes ds
 
 -- Get the best split and its score for the given statistic and attribute
 bestSplit :: Aggregate a => [Example l] -> Stat l a -> Attribute -> Split
-bestSplit exs stat attr = minimumBy (compare `on` score) pairs
+bestSplit exs stat' attr' = minimumBy (compare `on` score) pairs
   where
     -- Sort examples by values for attribute
-    sorted    = sortBy (compare `on` projectEx attr) exs
+    sorted    = sortBy (compare `on` projectEx attr') exs
     labels    = map label sorted
     -- Roll together stats from front and back of sorted list of examples
     -- Note: backwards list is one shorter since forward splits test "<= v"
     forwards  = foldr accum [] labels
     backwards = reverse . foldr accum [] . reverse . tail $ labels
-    scores    = zipWith (mergeWith stat) forwards backwards
-    pairs     = zipWith (Split attr) (map (projectEx attr) sorted) scores
+    scores    = zipWith (mergeWith stat') forwards backwards
+    pairs     = zipWith (Split attr') (map (projectEx attr') sorted) scores
     -- Accumulator 
-    accum l [] = [(aggregator stat) l]
-    accum l vs = ((aggregator stat) l `mappend` head vs) : vs
+    accum l [] = [(aggregator stat') l]
+    accum l vs = ((aggregator stat') l `mappend` head vs) : vs
 
 --------------------------------------------------------------------------------
 -- Models
 
-data Model l = Model { desc :: String, fn :: (Instance -> l), input :: [Example l] }
+data Model l = Model { desc :: String
+                     , fn :: (Instance -> l)
+                     , input :: [Example l] }
 instance Show (Model l) where 
   show (Model d m exs) = d ++ " (Samples: " ++ show (length exs) ++ ")"
 
