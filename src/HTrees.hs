@@ -58,9 +58,10 @@ data Tree l = Node Split (Tree l) (Tree l) | Leaf (Model l)
 instance Show (Tree l) where show t = showTree 0 t
 
 showTree :: Int -> Tree l -> String
-showTree d (Node s l r) = indent d (show s) ++ ":\n" ++
-   indent d (showTree (d+1) l) ++ "\n" ++
-   indent d (showTree (d+1) r)
+showTree d (Node s l r) =
+  indent d (show s) ++ ":\n" ++
+  indent d (showTree (d+1) l) ++ "\n" ++
+  indent d (showTree (d+1) r)
 showTree d (Leaf m)     = indent d (show m)
 
 indent :: Int -> String -> String
