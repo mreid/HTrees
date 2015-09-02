@@ -40,22 +40,36 @@ import qualified  Data.Map.Lazy as Map
 -- An example is an instance labelled with a double
 type Value = Double
 type Instance = Vector Double
-data Example l = Ex { inst :: Instance, label :: l } deriving Show
+
+data Example l =
+  Ex { inst :: Instance
+     , label :: l }
+  deriving Show
 
 -- A data set is a collection of examples and attributes
-data Attribute = Attr { name :: String, project :: Instance -> Value }
-instance Show Attribute where show (Attr name' _) = name'
+data Attribute =
+  Attr { name :: String
+       , project :: Instance -> Value }
+
+instance Show Attribute where
+  show (Attr name' _) = name'
 
 projectEx :: Attribute -> Example l -> Value
 projectEx attr' = project attr' . inst
 
-data DataSet l = DS { attributes :: [Attribute], examples :: [Example l] }
+data DataSet l =
+  DS { attributes :: [Attribute]
+     , examples :: [Example l] }
   deriving Show
 
 -- A decision tree consists of internal nodes which split and leaf nodes
 -- which make predictions
-data Tree l = Node Split (Tree l) (Tree l) | Leaf (Model l)
-instance Show (Tree l) where show t = showTree 0 t
+data Tree l =
+    Node Split (Tree l) (Tree l)
+  | Leaf (Model l)
+
+instance Show (Tree l) where
+  show t = showTree 0 t
 
 showTree :: Int -> Tree l -> String
 showTree d (Node s l r) =
@@ -77,10 +91,10 @@ predictWith (Node (Split attr' val _) left right) x
 
 -- Configuration variables for tree building kept here.
 data Config l p s = Config {
-  maxDepth    :: Int,
-  minNodeSize :: Int,
-  leafModel   :: [Example l] -> Model p,
-  stat        :: Stat l s
+    maxDepth    :: Int
+  , minNodeSize :: Int
+  , leafModel   :: [Example l] -> Model p
+  , stat        :: Stat l s
 }
 
 defRegConfig :: Config Double Double Moments
@@ -122,13 +136,16 @@ squareLoss :: Loss Double Double
 squareLoss v v' = (v - v')**2
 
 zeroOneLoss :: Loss Int Int
-zeroOneLoss v v' = if v == v' then 0 else 1
+zeroOneLoss v v' =
+  if v == v' then 0 else 1
 --------------------------------------------------------------------------------
 -- Impurity Measures
 
 -- A Stat has a function for taking a value to an Aggregate and summarising
 -- an Aggregate of the same type
-data Stat l s = Stat { aggregator :: l -> s, summary :: s -> Double }
+data Stat l s =
+  Stat { aggregator :: l -> s
+       , summary :: s -> Double }
 
 -- Combine two statistics by taking their weighted average
 mergeWith :: Aggregate a => Stat l a -> a -> a -> Double
@@ -155,21 +172,29 @@ class Monoid s => Aggregate s where
   size      :: s -> Double
 
 -- Collects the fist and second moments of the continuous values it sees
-newtype Moments = Mom (Double, Double, Double)
+newtype Moments =
+  Mom (Double, Double, Double)
+
 toMoment :: Double -> Moments
 toMoment d = Mom (1,d,d*d)
 
-instance Aggregate Moments where size (Mom (n, _, _)) = n
+instance Aggregate Moments where
+  size (Mom (n, _, _)) = n
+
 instance Monoid Moments where
   mempty = Mom (0,0,0)
   mappend (Mom (n,s,s2)) (Mom (n',s',s2')) = (Mom (n+n',s+s',s2+s2'))
 
 -- Creates a histogram of the discrete values it sees
-newtype Histogram = Hist (Double,Map.Map Int Double)
+newtype Histogram =
+  Hist (Double,Map.Map Int Double)
+
 toHistogram :: Int -> Histogram
 toHistogram i = Hist (1, Map.singleton i 1)
 
-instance Aggregate Histogram where size (Hist (_,fs)) = Map.foldr (+) 0 fs
+instance Aggregate Histogram where
+  size (Hist (_,fs)) = Map.foldr (+) 0 fs
+
 instance Monoid Histogram where
   mempty = Hist (0,Map.empty)
   mappend (Hist (n1, fs1)) (Hist (n2, fs2))
@@ -180,7 +205,11 @@ instance Monoid Histogram where
 
 -- A Split is puts each instance into one of two classes by testing
 -- an attribute against a threshold.
-data Split = Split { attr :: Attribute,  value :: Value, score :: Double}
+data Split =
+  Split { attr :: Attribute
+        , value :: Value
+        , score :: Double }
+
 instance Show Split where
   show (Split (Attr name' _) v q)
     = name' ++ " <= " ++ (show v) ++ " (Impurity: " ++ show q ++ ")"
@@ -190,7 +219,7 @@ allSplits :: DataSet l -> [Split]
 allSplits ds = [Split attr' v infty | attr' <- attributes ds, v <- values attr']
   where
     infty = read "Infinity" :: Double
-q    values attr' = map (projectEx attr') . examples $ ds
+    values attr' = map (projectEx attr') . examples $ ds
 
 -- Get best split for the given data set as assessed by the impurity measure
 findBestSplit :: (Aggregate a, Num l) => Stat l a -> DataSet l -> Split
@@ -218,9 +247,11 @@ bestSplit exs stat' attr' = minimumBy (compare `on` score) pairs
 --------------------------------------------------------------------------------
 -- Models
 
-data Model l = Model { desc :: String
-                     , fn :: (Instance -> l)
-                     , input :: [Example l] }
+data Model l =
+  Model { desc :: String
+        , fn :: (Instance -> l)
+        , input :: [Example l] }
+
 instance Show (Model l) where
   show (Model d _ exs) = d ++ " (Samples: " ++ show (length exs) ++ ")"
 
