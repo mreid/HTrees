@@ -11,10 +11,10 @@
 --      • A collection of instances
 --      • A source attribute mapping instances to some feature representation
 --      • A target attribute mapping instances to some target value
--- 
--- In order to create decision trees from examples, we require that a 
+--
+-- In order to create decision trees from examples, we require that a
 -- collection of possible projections be provided along with the instances.
--- These are attributes that map instances to orderable (e.g., continuous) or 
+-- These are attributes that map instances to orderable (e.g., continuous) or
 -- equality-testable values (e.g., categorical).
 --
 -- References:
@@ -40,56 +40,78 @@ import qualified  Data.Map.Lazy as Map
 -- An example is an instance labelled with a double
 type Value = Double
 type Instance = Vector Double
-data Example l = Ex { inst :: Instance, label :: l } deriving Show
+
+data Example l =
+  Ex { inst :: Instance
+     , label :: l }
+  deriving Show
 
 -- A data set is a collection of examples and attributes
-data Attribute = Attr { name :: String, project :: Instance -> Value }
-instance Show Attribute where show (Attr name _) = name
+data Attribute =
+  Attr { name :: String
+       , project :: Instance -> Value }
+
+instance Show Attribute where
+  show (Attr name' _) = name'
 
 projectEx :: Attribute -> Example l -> Value
-projectEx attr = project attr . inst
+projectEx attr' = project attr' . inst
 
-data DataSet l = DS { attributes :: [Attribute], examples :: [Example l] } 
+data DataSet l =
+  DS { attributes :: [Attribute]
+     , examples :: [Example l] }
   deriving Show
 
 -- A decision tree consists of internal nodes which split and leaf nodes
 -- which make predictions
-data Tree l = Node Split (Tree l) (Tree l) | Leaf (Model l)
-instance Show (Tree l) where show t = showTree 0 t
+data Tree l =
+    Node Split (Tree l) (Tree l)
+  | Leaf (Model l)
+
+instance Show (Tree l) where
+  show t = showTree 0 t
 
 showTree :: Int -> Tree l -> String
-showTree d (Node s l r) = indent d (show s) ++ ":\n" ++ 
-   indent d (showTree (d+1) l) ++ "\n" ++ 
-   indent d (showTree (d+1) r)
+showTree d (Node s l r) =
+  indent d (show s) ++ ":\n" ++
+  indent d (showTree (d+1) l) ++ "\n" ++
+  indent d (showTree (d+1) r)
 showTree d (Leaf m)     = indent d (show m)
-indent d = (replicate d ' ' ++) 
+
+indent :: Int -> String -> String
+indent d = (replicate d ' ' ++)
 
 -- Simple prediction with a tree involves running an instance down to a leaf
 -- and predicting with the model found there.
 predictWith :: Tree l -> Instance -> l
 predictWith (Leaf m) x = (fn m) x
-predictWith (Node (Split attr val _) left right) x 
-  | ((project attr) x < val)  = predictWith left x
+predictWith (Node (Split attr' val _) left right) x
+  | ((project attr') x < val) = predictWith left x
   | otherwise                 = predictWith right x
 
 -- Configuration variables for tree building kept here.
-data Config l p s = Config { 
-  maxDepth    :: Int,  
-  minNodeSize :: Int,
-  leafModel   :: [Example l] -> Model p,
-  stat        :: Stat l s
+data Config l p s = Config {
+    maxDepth    :: Int
+  , minNodeSize :: Int
+  , leafModel   :: [Example l] -> Model p
+  , stat        :: Stat l s
 }
+
+defRegConfig :: Config Double Double Moments
 defRegConfig    = Config 32 10 meanModel (Stat toMoment variance)
+
+defClassConfig :: Config Int Int Histogram
 defClassConfig  = Config 32 10 majModel (Stat toHistogram entropy)
 
 -- Check whether tree building should stop by seeing whether maximum depth
 -- has been reached or the current dataset is too small.
-isFinished (Config maxDepth minNodeSize _ _) (leftExs, rightExs)
-  = (maxDepth == 0) 
-    || (length leftExs <= minNodeSize) 
-    || (length rightExs <= minNodeSize)
+isFinished :: (Foldable f, Foldable g) => Config a b c -> (f x, g y) -> Bool
+isFinished (Config maxDepth' minNodeSize' _ _) (leftExs, rightExs)
+  = (maxDepth' == 0)
+    || (length leftExs  <= minNodeSize')
+    || (length rightExs <= minNodeSize')
 
--- Building a tree involves either: 
+-- Building a tree involves either:
 --  A) Finding a good split for the current examples and refining the tree
 --  B) Fitting a model to the examples and returning a leaf
 buildWith :: (Aggregate a, Num l) => Config l p a -> DataSet l -> Tree p
@@ -114,20 +136,23 @@ squareLoss :: Loss Double Double
 squareLoss v v' = (v - v')**2
 
 zeroOneLoss :: Loss Int Int
-zeroOneLoss v v' = if v == v' then 0 else 1
+zeroOneLoss v v' =
+  if v == v' then 0 else 1
 --------------------------------------------------------------------------------
 -- Impurity Measures
 
 -- A Stat has a function for taking a value to an Aggregate and summarising
 -- an Aggregate of the same type
-data Stat l s = Stat { aggregator :: l -> s, summary :: s -> Double }
+data Stat l s =
+  Stat { aggregator :: l -> s
+       , summary :: s -> Double }
 
 -- Combine two statistics by taking their weighted average
 mergeWith :: Aggregate a => Stat l a -> a -> a -> Double
-mergeWith stat a a' 
+mergeWith stat' a a'
   = ( (size a) * (summariser a) + (size a') * (summariser a') ) / both
   where
-    summariser = summary stat
+    summariser = summary stat'
     both = (size a) + (size a')
 
 -- Returns the variance from a moment aggregation
@@ -147,70 +172,88 @@ class Monoid s => Aggregate s where
   size      :: s -> Double
 
 -- Collects the fist and second moments of the continuous values it sees
-newtype Moments = Mom (Double, Double, Double)
+newtype Moments =
+  Mom (Double, Double, Double)
+
+toMoment :: Double -> Moments
 toMoment d = Mom (1,d,d*d)
 
-instance Aggregate Moments where size (Mom (n, _, _)) = n
+instance Aggregate Moments where
+  size (Mom (n, _, _)) = n
+
 instance Monoid Moments where
   mempty = Mom (0,0,0)
   mappend (Mom (n,s,s2)) (Mom (n',s',s2')) = (Mom (n+n',s+s',s2+s2'))
 
 -- Creates a histogram of the discrete values it sees
-newtype Histogram = Hist (Double,Map.Map Int Double)
+newtype Histogram =
+  Hist (Double,Map.Map Int Double)
+
+toHistogram :: Int -> Histogram
 toHistogram i = Hist (1, Map.singleton i 1)
 
-instance Aggregate Histogram where size (Hist (n,fs)) = Map.foldr (+) 0 fs
+instance Aggregate Histogram where
+  size (Hist (_,fs)) = Map.foldr (+) 0 fs
+
 instance Monoid Histogram where
-  mempty = Hist (0,Map.empty) 
+  mempty = Hist (0,Map.empty)
   mappend (Hist (n1, fs1)) (Hist (n2, fs2))
     = Hist (n1+n2, Map.unionWith (+) fs1 fs2)
 
 --------------------------------------------------------------------------------
 -- Splits
 
--- A Split is puts each instance into one of two classes by testing 
+-- A Split is puts each instance into one of two classes by testing
 -- an attribute against a threshold.
-data Split = Split { attr :: Attribute,  value :: Value, score :: Double} 
-instance Show Split where 
-  show (Split (Attr name _) v q) 
-    = name ++ " <= " ++ (show v) ++ " (Impurity: " ++ show q ++ ")"
+data Split =
+  Split { attr :: Attribute
+        , value :: Value
+        , score :: Double }
+
+instance Show Split where
+  show (Split (Attr name' _) v q)
+    = name' ++ " <= " ++ (show v) ++ " (Impurity: " ++ show q ++ ")"
 
 -- Build all possible splits for a given data set
-allSplits :: DataSet l -> [Split] 
-allSplits ds = [Split attr v infty | attr <- attributes ds, v <- values attr]
+allSplits :: DataSet l -> [Split]
+allSplits ds = [Split attr' v infty | attr' <- attributes ds, v <- values attr']
   where
     infty = read "Infinity" :: Double
-    values attr = map (projectEx attr) . examples $ ds
+    values attr' = map (projectEx attr') . examples $ ds
 
 -- Get best split for the given data set as assessed by the impurity measure
 findBestSplit :: (Aggregate a, Num l) => Stat l a -> DataSet l -> Split
-findBestSplit stat ds = minimumBy (compare `on` score) $ bestPerAttr
+findBestSplit stat' ds = minimumBy (compare `on` score) $ bestPerAttr
   where
-    bestPerAttr = map (bestSplit (examples ds) stat) $ attributes ds
+    bestPerAttr = map (bestSplit (examples ds) stat') $ attributes ds
 
 -- Get the best split and its score for the given statistic and attribute
 bestSplit :: Aggregate a => [Example l] -> Stat l a -> Attribute -> Split
-bestSplit exs stat attr = minimumBy (compare `on` score) pairs
+bestSplit exs stat' attr' = minimumBy (compare `on` score) pairs
   where
     -- Sort examples by values for attribute
-    sorted    = sortBy (compare `on` projectEx attr) exs
+    sorted    = sortBy (compare `on` projectEx attr') exs
     labels    = map label sorted
     -- Roll together stats from front and back of sorted list of examples
     -- Note: backwards list is one shorter since forward splits test "<= v"
     forwards  = foldr accum [] labels
     backwards = reverse . foldr accum [] . reverse . tail $ labels
-    scores    = zipWith (mergeWith stat) forwards backwards
-    pairs     = zipWith (Split attr) (map (projectEx attr) sorted) scores
-    -- Accumulator 
-    accum l [] = [(aggregator stat) l]
-    accum l vs = ((aggregator stat) l `mappend` head vs) : vs
+    scores    = zipWith (mergeWith stat') forwards backwards
+    pairs     = zipWith (Split attr') (map (projectEx attr') sorted) scores
+    -- Accumulator
+    accum l [] = [(aggregator stat') l]
+    accum l vs = ((aggregator stat') l `mappend` head vs) : vs
 
 --------------------------------------------------------------------------------
 -- Models
 
-data Model l = Model { desc :: String, fn :: (Instance -> l), input :: [Example l] }
-instance Show (Model l) where 
-  show (Model d m exs) = d ++ " (Samples: " ++ show (length exs) ++ ")"
+data Model l =
+  Model { desc :: String
+        , fn :: (Instance -> l)
+        , input :: [Example l] }
+
+instance Show (Model l) where
+  show (Model d _ exs) = d ++ " (Samples: " ++ show (length exs) ++ ")"
 
 -- Constructs a constant model which returns the mean of the examples
 meanModel :: [Example Double] -> Model Double
@@ -226,6 +269,5 @@ mean xs = (sum xs) / (fromIntegral . length $ xs)
 majModel :: [Example Int] -> Model Int
 majModel xs = Model ("Predict " ++ show v) (const v) xs
   where
-    Hist (n,fs) = foldMap (toHistogram . label) xs
+    Hist (_, fs) = foldMap (toHistogram . label) xs
     v = fst . Map.findMax $ fs
-
